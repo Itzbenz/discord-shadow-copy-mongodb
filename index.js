@@ -23,14 +23,6 @@ const ignoreDuplicateErrorHandler = (error) => {
 const alreadyIndexed = [];
 client.on('ready', async () => {
     console.log(`${client.user.tag} is ready!`);
-    // set status
-    await client.user.setPresence({
-        activities: [{
-            name: 'Big brother is watching you',
-            type: 'PLAYING',
-        }],
-        status: 'idle',
-    });
 
     //synchronize guilds, channels, users
     const guilds = client.guilds.cache;
