@@ -18,7 +18,7 @@ const ignoreDuplicateErrorHandler = (error) => {
     if (error.code === 11000) {
         return;
     }
-    console.error(error);
+    throw error;
 }
 const alreadyIndexed = [];
 client.on('ready', async () => {
@@ -26,18 +26,47 @@ client.on('ready', async () => {
 
     //synchronize guilds, channels, users
     const guilds = client.guilds.cache;
+    const channels = client.channels.cache;
     const users = client.users.cache;
     console.log(`Guilds: ${guilds.size}`);
+    console.log(`Channels: ${channels.size}`);
     console.log(`Users: ${users.size}`);
 
     //sample
-    console.log(`Guild`, guilds.last());
-    console.log(`User`, users.last());
+    console.log(`Guild`, guilds.random());
+    console.log(`Channel`, channels.random());
+    console.log(`User`, users.random());
 
 
     // add or update to database
-    database.collection('guilds').insertMany(guilds.map(serializer.guild)).catch(ignoreDuplicateErrorHandler);
-    database.collection('users').insertMany(users.map(serializer.user)).catch(ignoreDuplicateErrorHandler);
+    const guildOps = guilds.map(guild => ({
+        updateOne: {
+            filter: { id: guild.id },
+            update: { $set: serializer.guild(guild) },
+            upsert: true
+        }
+    }));
+
+    const channelOps = channels.map(channel => ({
+        updateOne: {
+            filter: { id: channel.id },
+            update: { $set: serializer.channel(channel) },
+            upsert: true
+        }
+    }));
+
+    const userOps = users.map(user => ({
+        updateOne: {
+            filter: { id: user.id },
+            update: { $set: serializer.user(user) },
+            upsert: true
+        }
+    }));
+
+    await database.collection('guilds').bulkWrite(guildOps);
+    await database.collection('channels').bulkWrite(channelOps);
+    await database.collection('users').bulkWrite(userOps);
+
 
     // Hijack and wrap CachedManager _add
     // _add(data, cache = true, { id, extras = [] } = {}) {
@@ -90,8 +119,8 @@ client.on('ready', async () => {
 })
 
 
-client.on('message', (message) => {
-    if(true)return
+client.on('messageCreate', (message) => {
+    return true;
     // log detailed
     console.log(`[${new Date().toLocaleString()}] [${(message.guild?.name || 'DM') + ' - ' + message.channel.name}] ${message.author.tag}: ${message.content}`);
     // check attachments
@@ -101,6 +130,9 @@ client.on('message', (message) => {
 
 })
 
+client.on('cacheSweep', (collection, amount) => {
+    console.log(`[${new Date().toLocaleString()}] [cacheSweep] ${collection.name} ${amount}`);
+})
 
 const manager_to_collections = {
     UserManager: 'users',
@@ -110,24 +142,48 @@ const manager_to_collections = {
     GuildMemberManager: 'members',
 }
 const serialize_anything = (object) => {
-    const newObject = Object.assign({}, object);
-    serialize(newObject);
-    return newObject;
-
+    return serialize(object);
 }
 
+function listGetters(instance) {
+    return Object.entries(
+        Object.getOwnPropertyDescriptors(
+            Reflect.getPrototypeOf(instance)
+        )
+    )
+        .filter(e => typeof e[1].get === 'function' && e[0] !== '__proto__')
+        .map(e => e[0]);
+}
 
-function serialize(object) {
+function serialize(oldObject) {
+    let object = Object.assign({}, oldObject);
+
+    //invoke getters that not async
+    for (const key of listGetters(oldObject)) {
+        try {
+            object[key] = oldObject[key];
+        } catch (e) {
+            //console.log(e);
+        }
+    }
     //delete anything with object.constructor.name.includes('Manager')
     for (const key in object) {
-
+        if(key.startsWith("_")){
+            delete object[key];
+            continue;
+        }
+        if(object[key] instanceof Collection){
+            object[key] = object[key].map(e => e);
+        }
         if (!object[key]) {
-            if(object[key] === undefined) delete object[key];
+            if (object[key] === undefined) delete object[key];
         } else if (object[key].size === 0 || object[key].length === 0) {
             delete object[key];
         } else if (Array.isArray(object[key])) {
             //check if obj have id
-            if (object[key][0].id) {
+            if(object[key][0] === null || object[key][0] === undefined){
+                delete object[key];
+            } else if (object[key][0].id) {
                 object[key + "_id"] = object[key].map(e => e.id);
                 delete object[key];
             } else if (typeof object[key][0] === 'object') {
@@ -165,9 +221,12 @@ function serialize(object) {
 
         }
     }
+    delete object._id;
+    delete object.meId;
     delete object.client;
     delete object.phoneNumber;
     delete object.emailAddress;
+    return object;
 }
 
 const serializer = {
@@ -183,21 +242,14 @@ const serializer = {
         }
     },
     user: function (user) {
-        let newUser = Object.assign({}, user);
-        delete newUser._intervalSamsungPresence;
-        serialize(newUser);
-        return newUser;
+        return serialize(user);
 
     },
     channel: function (channel) {
-        let newChannel = Object.assign({}, channel);
-        serialize(newChannel);
-        return newChannel;
+        return serialize(channel);
     },
     guild: function (guild) {
-        let newGuild = Object.assign({}, guild);
-        serialize(newGuild);
-        return newGuild;
+        return serialize(guild);
     }
 }
 const startTime = Date.now();
@@ -205,11 +257,13 @@ const startTime = Date.now();
 async function sleep(number) {
     return new Promise(resolve => setTimeout(resolve, number));
 }
+
 //exit on async error
 process.on('unhandledRejection', error => {
     console.log('unhandledRejection', error);
     process.exit(1);
 });
+
 async function main() {
     await mongoClient.connect();
     //create collection
@@ -252,7 +306,7 @@ async function main() {
         const uptime = time - startTime;
         const uptimeString = relativeDateFormatter.format(-uptime / 1000, 'second');
 
-        if(!process.env.NO_PRESENCE) {
+        if (!process.env.NO_PRESENCE) {
             await client.user.setPresence({
                 activities: [
                     {
