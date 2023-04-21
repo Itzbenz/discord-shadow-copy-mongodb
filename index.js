@@ -140,7 +140,7 @@ function serialize(object) {
                     delete object[key];
                 }
             } else {
-                console.log('Array', typeof object[key][0]);
+                //console.log('Array', typeof object[key][0]);
             }
 
         } else if (object[key].constructor.name.includes('Manager')) {
