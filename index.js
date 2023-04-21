@@ -26,15 +26,18 @@ client.on('ready', async () => {
 
     //synchronize guilds, channels, users
     const guilds = client.guilds.cache;
+    const users = client.users.cache;
     console.log(`Guilds: ${guilds.size}`);
+    console.log(`Users: ${users.size}`);
 
     //sample
     console.log(`Guild`, guilds.last());
+    console.log(`User`, users.last());
 
 
     // add or update to database
     database.collection('guilds').insertMany(guilds.map(serializer.guild)).catch(ignoreDuplicateErrorHandler);
-
+    database.collection('users').insertMany(users.map(serializer.user)).catch(ignoreDuplicateErrorHandler);
 
     // Hijack and wrap CachedManager _add
     // _add(data, cache = true, { id, extras = [] } = {}) {
@@ -49,7 +52,9 @@ client.on('ready', async () => {
         if (blacklistedManager.includes(managerName) || !holdName) {
             return newData;
         }
-        data = newData;
+        const oldData = data;
+        data = oldData.id ? oldData : newData
+
 
         //console.log(holdName, managerName, '._add', data, cache, id, extras);
         //console.log('new', managerName, '._add', newData, cache, id, extras);
@@ -63,10 +68,12 @@ client.on('ready', async () => {
             }
             const serialized = serializer(data);
             if (serialized) {
-                //console.log(managerName, serialized);
+
                 if (serialized.id) {
+                    //console.log(managerName, collectionName, serialized.id, serialized);
                     database.collection(collectionName).updateOne({id: serialized.id}, {$set: serialized}, {upsert: true}).catch(ignoreDuplicateErrorHandler);
                 } else {
+                    //console.log(managerName, collectionName, serialized);
                     database.collection(collectionName).insertOne(serialized).catch(ignoreDuplicateErrorHandler);
                 }
             }
@@ -96,8 +103,8 @@ client.on('messageCreate', (message) => {
 
 
 const manager_to_collections = {
-    MessageManager: 'messages',
     UserManager: 'users',
+    MessageManager: 'messages',
     PresenceManager: 'presences',
     GuildBanManager: 'bans',
 }
