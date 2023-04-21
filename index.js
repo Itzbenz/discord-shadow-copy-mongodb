@@ -90,8 +90,7 @@ client.on('ready', async () => {
 })
 
 
-client.on('messageCreate', (message) => {
-    if (true) return;
+client.on('message', (message) => {
     // log detailed
     console.log(`[${new Date().toLocaleString()}] [${(message.guild?.name || 'DM') + ' - ' + message.channel.name}] ${message.author.tag}: ${message.content}`);
     // check attachments
