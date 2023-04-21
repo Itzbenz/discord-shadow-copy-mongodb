@@ -72,7 +72,7 @@ client.on('ready', async () => {
             const serialized = serializer(data);
             if (serialized) {
                 //console.log(managerName, serialized);
-                if(serialized.id) {
+                if (serialized.id) {
                     database.collection(collectionName).updateOne({id: serialized.id}, {$set: serialized}, {upsert: true}).catch(ignoreDuplicateErrorHandler);
                 } else {
                     database.collection(collectionName).insertOne(serialized).catch(ignoreDuplicateErrorHandler);
@@ -101,7 +101,6 @@ client.on('messageCreate', (message) => {
     }
 
 })
-
 
 
 const manager_to_collections = {
@@ -134,10 +133,10 @@ function serialize(object) {
             } else if (typeof object[key][0] === 'object') {
                 //see if deeply nested or just shallow
                 let jasoned;
-                try{
+                try {
                     jasoned = JSON.stringify(object[key]);
                     object[key] = JSON.parse(jasoned);
-                }catch (e) {
+                } catch (e) {
                     delete object[key];
                 }
             } else {
@@ -201,6 +200,11 @@ const serializer = {
         return newGuild;
     }
 }
+const startTime = Date.now();
+
+async function sleep(number) {
+    return new Promise(resolve => setTimeout(resolve, number));
+}
 
 async function main() {
     await mongoClient.connect();
@@ -219,6 +223,32 @@ async function main() {
     console.log('Connected to MongoDB');
     await client.login(process.env.TOKEN);
     console.log('Logged in');
+
+    const relativeDateFormatter = new Intl.RelativeTimeFormat('en', {numeric: 'auto'});
+    while (true) {
+
+        const time = Date.now();
+        const uptime = time - startTime;
+        const uptimeString = relativeDateFormatter.format(-uptime / 1000, 'second');
+
+        await client.user.setPresence({
+            activities: [
+                {
+                    name: `Big Brother is watching you`,
+                    type: 'PLAYING',
+                    timestamps: {
+                        start: startTime,
+                    },
+                }, {
+                    name: `Uptime: ${uptimeString}`,
+                    type: 'WATCHING',
+
+                }
+            ],
+            status: 'idle',
+        });
+        await sleep((Math.random() * 95000) + 5000);
+    }
 }
 
 main().catch(console.error);
