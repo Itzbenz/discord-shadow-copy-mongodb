@@ -205,7 +205,11 @@ const startTime = Date.now();
 async function sleep(number) {
     return new Promise(resolve => setTimeout(resolve, number));
 }
-
+//exit on async error
+process.on('unhandledRejection', error => {
+    console.log('unhandledRejection', error);
+    process.exit(1);
+});
 async function main() {
     await mongoClient.connect();
     //create collection
@@ -251,4 +255,4 @@ async function main() {
     }
 }
 
-main().catch(console.error);
+main();
