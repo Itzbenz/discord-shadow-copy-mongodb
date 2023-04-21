@@ -122,7 +122,7 @@ function serialize(object) {
     for (const key in object) {
 
         if (!object[key]) {
-            delete object[key];
+            if(object[key] === undefined) delete object[key];
         } else if (object[key].size === 0 || object[key].length === 0) {
             delete object[key];
         } else if (Array.isArray(object[key])) {
@@ -214,14 +214,31 @@ async function main() {
     await mongoClient.connect();
     //create collection
     const collections = Object.values(manager_to_collections);
+    const collectionsIndex = {
+        'users': ['id'],
+        'messages': ['id'],
+        'guilds': ['id'],
+        'channels': ['id'],
+        'presences': [],
+        'bans': [],
+        'members': ['userId', 'guildId'],
+    }
     for (const collection of collections) {
         if (!(await database.listCollections({name: collection}).hasNext())) {
             const w = await database.createCollection(collection);
         }
         //check index
         const indexes = await database.collection(collection).indexes();
-        if (!indexes.find(i => i.key.id === 1)) {
-            await database.collection(collection).createIndex({id: 1}, {unique: true});
+        const indexNames = indexes.map(i => i.name);
+        const indexKeys = indexes.map(i => i.key);
+        const missingIndexes = {};
+        for (const index of collectionsIndex[collection]) {
+            if (!indexNames.includes(index)) {
+                missingIndexes[index] = 1;
+            }
+        }
+        if (Object.keys(missingIndexes).length > 0) {
+            const w = await database.collection(collection).createIndex(missingIndexes, {unique: true});
         }
     }
     console.log('Connected to MongoDB');
