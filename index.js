@@ -315,7 +315,7 @@ async function main() {
                         .setType('PLAYING')
                         .setStartTimestamp(new Date(startTime))
                         .setAssetsLargeImage('https://media.discordapp.net/attachments/1095671418345226290/1098980955139625050/160473d8698840a316a18acd50a3b2b4.png')
-                        .setAssetsLargeText('Big Brother is watching you'),
+                        .setAssetsLargeText('Big Brother is watching you.'),
                     {
                         name: `Uptime: ${uptimeString}`,
                         type: 'WATCHING',
