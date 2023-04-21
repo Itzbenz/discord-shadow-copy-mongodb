@@ -91,6 +91,7 @@ client.on('ready', async () => {
 
 
 client.on('message', (message) => {
+    if(true)return
     // log detailed
     console.log(`[${new Date().toLocaleString()}] [${(message.guild?.name || 'DM') + ' - ' + message.channel.name}] ${message.author.tag}: ${message.content}`);
     // check attachments
@@ -251,23 +252,25 @@ async function main() {
         const uptime = time - startTime;
         const uptimeString = relativeDateFormatter.format(-uptime / 1000, 'second');
 
-        if(!process.env.NO_PRESENCE)
-        await client.user.setPresence({
-            activities: [
-                {
-                    name: `Big Brother is watching you`,
-                    type: 'PLAYING',
-                    timestamps: {
-                        start: startTime,
-                    },
-                }, {
-                    name: `Uptime: ${uptimeString}`,
-                    type: 'WATCHING',
+        if(!process.env.NO_PRESENCE) {
+            await client.user.setPresence({
+                activities: [
+                    {
+                        name: `Big Brother is watching you`,
+                        type: 'PLAYING',
+                        timestamps: {
+                            start: startTime,
+                        },
+                    }, {
+                        name: `Uptime: ${uptimeString}`,
+                        type: 'WATCHING',
 
-                }
-            ],
-            status: 'idle',
-        });
+                    }
+                ],
+                status: 'idle',
+            });
+        }
+        console.log(`[${new Date().toLocaleString()}] Uptime: ${uptimeString}`);
         await sleep((Math.random() * 95000) + 5000);
     }
 }
