@@ -107,6 +107,7 @@ const manager_to_collections = {
     MessageManager: 'messages',
     PresenceManager: 'presences',
     GuildBanManager: 'bans',
+    GuildMemberManager: 'members',
 }
 const serialize_anything = (object) => {
     const newObject = Object.assign({}, object);
