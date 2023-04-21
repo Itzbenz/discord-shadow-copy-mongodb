@@ -1,4 +1,4 @@
-const {Client, Collection} = require('discord.js-selfbot-v13');
+const {Client, Collection, RichPresence} = require('discord.js-selfbot-v13');
 const CachedManager = require('discord.js-selfbot-v13/src/managers/CachedManager');
 require('dotenv').config();
 const {MongoClient} = require("mongodb");
@@ -310,13 +310,13 @@ async function main() {
         if (!process.env.NO_PRESENCE) {
             await client.user.setPresence({
                 activities: [
+                    new RichPresence()
+                        .setName(`Big Brother is watching you`)
+                        .setType('PLAYING')
+                        .setStartTimestamp(new Date(startTime))
+                        .setAssetsLargeImage('https://media.discordapp.net/attachments/1095671418345226290/1098979033636675704/1984-1.png')
+                        .setAssetsLargeText('Big Brother is watching you'),
                     {
-                        name: `Big Brother is watching you`,
-                        type: 'PLAYING',
-                        timestamps: {
-                            start: startTime,
-                        },
-                    }, {
                         name: `Uptime: ${uptimeString}`,
                         type: 'WATCHING',
 
