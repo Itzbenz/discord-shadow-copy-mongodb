@@ -234,6 +234,7 @@ async function main() {
         const uptime = time - startTime;
         const uptimeString = relativeDateFormatter.format(-uptime / 1000, 'second');
 
+        if(!process.env.NO_PRESENCE)
         await client.user.setPresence({
             activities: [
                 {
