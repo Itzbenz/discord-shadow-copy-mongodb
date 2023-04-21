@@ -176,7 +176,8 @@ function serialize(oldObject) {
             object[key] = object[key].map(e => e);
         }
         if (!object[key]) {
-            if (object[key] === undefined) delete object[key];
+            //if (object[key] === undefined)
+                delete object[key];
         } else if (object[key].size === 0 || object[key].length === 0) {
             delete object[key];
         } else if (Array.isArray(object[key])) {
