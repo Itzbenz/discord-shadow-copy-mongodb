@@ -477,9 +477,9 @@ process.on('unhandledRejection', error => {
     //check if mongo
     if (error.toString().includes("Mongo") || error.stack.includes("mongo")) {
         //keep it short
-        console.log(error.toString());
+        console.err(error.toString());
     } else {
-        console.log('unhandledRejection', error);
+        console.err('unhandledRejection', error);
     }
     process.exit(1);
 });
