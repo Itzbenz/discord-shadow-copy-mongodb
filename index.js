@@ -251,8 +251,8 @@ client.on('raw', (packet) => {
     const eventName = packet.t;
     if (!eventName || !packet.d) return
     //const data = structuredClone(packet.d);
-    const data = serialize(structuredClone(data))
-    //console.log(`[${eventName}]`, data, dataSerialized);
+    const data = serialize(structuredClone(packet.d))
+    //console.log(`[${eventName}]`, data);
     database.collection('events').insertOne({
         eventName,
         data,
