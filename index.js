@@ -475,12 +475,12 @@ async function sleep(number) {
 //exit on async error
 process.on('unhandledRejection', error => {
     //check if mongo
-    if (error.toString().includes("Mongo")) {
+    if (error.toString().includes("Mongo") || error.stack.includes("mongo")) {
         //keep it short
         console.log(error.toString());
-        return;
+    } else {
+        console.log('unhandledRejection', error);
     }
-    console.log('unhandledRejection', error);
     process.exit(1);
 });
 
