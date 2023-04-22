@@ -90,7 +90,7 @@ const client = new Client({
     // https://discordjs-self-v13.netlify.app/#/docs/docs/main/typedef/ClientOptions
     // All partials are loaded automatically
     checkUpdate: false,
-    makeCache: Options.cacheEverything(),
+    makeCache: Options.cacheWithLimits(Options.defaultMakeCacheSettings)
 });
 
 function instanceToCollectionName(object) {
@@ -250,8 +250,9 @@ client.on('apiResponse',
 client.on('raw', (packet) => {
     const eventName = packet.t;
     if (!eventName || !packet.d) return
-    const data = structuredClone(packet.d);
-    //console.log(`[${eventName}]`, data);
+    //const data = structuredClone(packet.d);
+    const data = serialize(structuredClone(data))
+    //console.log(`[${eventName}]`, data, dataSerialized);
     database.collection('events').insertOne({
         eventName,
         data,

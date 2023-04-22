@@ -7,6 +7,10 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
     "profile": "node --prof index.js",
+    "clinic-heap": "clinic heap -- node index.js",
+    "clinic-doctor": "clinic doctor -- node index.js",
+    "clinic-flame": "clinic flame -- node index.js",
+    "clinic-bubbleprof": "clinic bubbleprof -- node index.js",
     "pm2": "pm2 start ecosystem.config.js"
   },
   "keywords": [],
