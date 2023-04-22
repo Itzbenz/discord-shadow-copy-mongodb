@@ -6,13 +6,14 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
+    "profile": "node --prof index.js",
     "pm2": "pm2 start ecosystem.config.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "discord.js-selfbot-v13": "^2.13.4",
+    "discord.js-selfbot-v13": "^2.13.5",
     "dotenv": "^16.0.3",
     "longjohn": "^0.2.12",
     "mongodb": "5.2"

@@ -2,8 +2,8 @@ require('dotenv').config();
 process.env.NODE_ENV = process.env.NODE_ENV || 'development';
 console.log("NODE_ENV: " + process.env.NODE_ENV);
 const Discord = require('discord.js-selfbot-v13');
-const {Client, Collection, RichPresence, Options, CachedManager} = Discord;
-const EventEmitter = require('node:events');
+const {Client, RichPresence, Options} = Discord;
+require('node:events');
 if (process.env.NODE_ENV !== 'production') {
     const longjohn = require('longjohn');
     longjohn.async_trace_limit = -1;
@@ -12,10 +12,11 @@ const {MongoClient} = require("mongodb");
 const mongoClient = new MongoClient(process.env.MONGO_URL, {
     retryWrites: true,
     retryReads: true,
-    useNewUrlParser: true,
-    useUnifiedTopology: true
 });
+const {listGetters, scrubbing, isNested, doNotSerialize} = require('./utils.js');
 const database = mongoClient.db(process.env.MONGO_DB);
+const EventEmitter = require("node:events");
+const {Channel, CachedManager} = require("discord.js-selfbot-v13");
 
 const ignoreDuplicateErrorHandler = (error) => {
     if (error.code === 11000) {
@@ -26,17 +27,12 @@ const ignoreDuplicateErrorHandler = (error) => {
 // Hijack and wrap CachedManager _add
 // _add(data, cache = true, { id, extras = [] } = {}) {
 const _add = CachedManager.prototype._add;
-
-const blacklistedManager = [
-    'GuildEmojiRoleManager', 'GuildEmojiManager', 'GuildStickerManager', 'ReactionManager', 'PermissionOverwriteManager',
-    "GuildScheduledEventManager", "RoleManager"];
 const logged = [];
 CachedManager.prototype._add = function (data, cache = true, {id, extras = []} = {}) {
     const existing = this.cache.get(id ?? data.id);
     const newData = _add.call(this, data, cache, {id, extras});
-    const managerName = this.constructor.name;
-    const holdName = this.holds?.name
-    if (blacklistedManager.includes(managerName) || !holdName || (existing && !cache)) {
+    const clazzName = newData.constructor.name === 'Object' ? data.constructor.name : newData.constructor.name;
+    if (!clazzName || (existing && !cache)) {
         return newData;
     }
     const oldData = data;
@@ -45,18 +41,18 @@ CachedManager.prototype._add = function (data, cache = true, {id, extras = []} =
 
     //console.log(holdName, managerName, '._add', data, cache, id, extras);
     //console.log('new', managerName, '._add', newData, cache, id, extras);
-    const collectionName = manager_to_collections[managerName];
+    const collectionName = instanceToCollectionName(newData.constructor.name === 'Object' ? oldData : newData);
+    const serialized = serialize(data);
     if (collectionName) {
         // add or update
         //const serializer = manager_serializer[managerName];
-        const serializer = serialize_anything
-        if (typeof serializer !== 'function') {
-            throw new Error(`Serializer for ${managerName} not found`);
-        }
-        const serialized = serializer(data);
         if (serialized) {
             //check if inserting into collection that has index
             const requiredIndex = collectionsIndex[collectionName];
+            if (!requiredIndex) {
+                console.log(`Missing index for ${collectionName}`);
+                return;
+            }
             let passed = true;
             let filter = {};
             for (const index of requiredIndex) {
@@ -79,10 +75,10 @@ CachedManager.prototype._add = function (data, cache = true, {id, extras = []} =
             }
         }
     } else {
-        if (!logged.includes(managerName)) {
-            logged.push(managerName);
-            console.log(managerName, '._add', data, cache, id, extras);
-            console.log(`No collection found for ${managerName}`);
+        if (!logged.includes(clazzName)) {
+            logged.push(clazzName);
+            console.log(clazzName, '._add', newData, serialized);
+            console.log(`No collection found for ${clazzName}`);
         }
     }
     return newData;
@@ -97,7 +93,67 @@ const client = new Client({
     makeCache: Options.cacheEverything(),
 });
 
+function instanceToCollectionName(object) {
+    //default index are id
+    if (object instanceof Discord.GuildMember) {
+        return 'members'; // userId, guildId
+    } else if (object instanceof Discord.BaseGuild) {
+        return 'guilds';
+    } else if (object instanceof Discord.Channel) {
+        return 'channels';
+    } else if (object instanceof Discord.User) {
+        return 'users';
+    } else if (object instanceof Discord.Message) {
+        return 'messages';
+    } else if (object instanceof Discord.Presence) {
+        return 'presences'; //unindexed
+    } else if (object instanceof Discord.Role) {
+        return 'roles';
+    } else if (object instanceof Discord.Emoji) {
+        return 'emojis';
+    } else if (object instanceof Discord.GuildBan) {
+        return 'bans'; //unindexed
+    } else if (object instanceof Discord.BaseGuildEmoji) {
+        return 'emojis';
+    } else if (object instanceof Discord.GuildScheduledEvent) {
+        return 'scheduledEvents';
+    } else if (object instanceof Discord.MessageReaction) {
+        return 'reactions';
+    } else if (object instanceof Discord.Sticker) {
+        return 'stickers';
+    } else {
+        if (object.constructor.name !== 'Object' && object.constructor.name !== 'Array') {
+            //console.log(object.constructor.name);
+        }
+    }
+}
 
+const collections = [];
+const collectionsIndex = {
+    'users': ['id'],
+    'messages': ['id'],
+    'guilds': ['id'],
+    'channels': ['id'],
+    'presences': [],
+    'bans': [],
+    'members': ['userId', 'guildId'],
+    'emojis': ['id'],
+    'scheduledEvents': ['id'],
+    'reactions': [],
+    'roles': ['id'],
+    'stickers': ['id'],
+
+}
+
+const propNameToCollectionName = {
+    'author': 'users',
+}
+Object.keys(collectionsIndex).forEach(key => {
+    if (!collections.includes(key)) {
+        collections.push(key);
+    }
+    propNameToCollectionName[key] = key;
+});
 client.on('ready', async () => {
     console.log(`${client.user.tag} is ready!`);
 
@@ -144,41 +200,8 @@ client.on('ready', async () => {
     database.collection('guilds').bulkWrite(guildOps).catch(ignoreDuplicateErrorHandler);
     database.collection('channels').bulkWrite(channelOps).catch(ignoreDuplicateErrorHandler);
     database.collection('users').bulkWrite(userOps).catch(ignoreDuplicateErrorHandler);
-
-
 })
 
-
-client.on('messageUpdate', (message) => {
-
-});
-client.on('messageCreate', (message) => {
-    if (true) return;
-    // log detailed
-    console.log(`[${new Date().toLocaleString()}] [${(message.guild?.name || 'DM') + ' - ' + message.channel.name}] ${message.author.tag}: ${message.content}`);
-    // check attachments
-    if (message.attachments.size > 0) {
-        console.log(`[${new Date().toLocaleString()}] [${message.guild ? (message.guild.name + ' - ' + message.channel.name) : 'DM'}] Found ${message.attachments.size} attachments`);
-    }
-
-})
-
-client.on('cacheSweep', (collection, amount) => {
-    console.log(`[${new Date().toLocaleString()}] [cacheSweep] ${collection.name} ${amount}`);
-})
-
-
-const manager_to_collections = {
-    UserManager: 'users',
-    MessageManager: 'messages',
-    PresenceManager: 'presences',
-    TextChannelManager: 'channels',
-    VoiceChannelManager: 'channels',
-    CategoryChannelManager: 'channels',
-    GuildBanManager: 'bans',
-    GuildMemberManager: 'members',
-    GuildManager: 'guilds',
-}
 
 const apiResponse_to_collections = {
     'GET /users/:id/profile': 'users',
@@ -196,10 +219,29 @@ client.on('apiResponse',
         const collectionName = apiResponse_to_collections[routeName];
         const blob = await res.blob()
         const text = await blob.text();
-        const data = JSON.parse(text);
+        let data = JSON.parse(text);
         if (collectionName) {
-            //read body
-            //console.log(data);
+            data = serialize(data)
+            const requiredIndex = collectionsIndex[collectionName]
+            const filter = {};
+            //check if all index exists and build filter
+
+            for (const index of requiredIndex) {
+                if (!data[index]) {
+                    console.error(`Missing index ${index} in ${routeName}`);
+                    return;
+                }
+                filter[index] = data[index];
+            }
+            //add or update to database
+            const ops = data.map(item => ({
+                updateOne: {
+                    filter: filter,
+                },
+                update: {$set: item},
+                upsert: true
+            }));
+            database.collection(collectionName).bulkWrite(ops).catch(ignoreDuplicateErrorHandler);
         }
 
     });
@@ -207,143 +249,42 @@ client.on('apiResponse',
 //subscribe to all events
 client.on('raw', (packet) => {
     const eventName = packet.t;
-    //resolveNested(packet)
-    console.log(`[${eventName}]`);
+    if (!eventName || !packet.d) return
+    const data = structuredClone(packet.d);
+    //console.log(`[${eventName}]`, data);
+    database.collection('events').insertOne({
+        eventName,
+        data,
+        timestamp: Date.now()
+    }).catch(ignoreDuplicateErrorHandler);
+});
+const {exec} = require('child_process');
+client.on('update', (oldVersion, newVersion) => {
+    if (!newVersion) return;
+    if (oldVersion === newVersion) return;
+    console.log(`Update from ${oldVersion} to ${newVersion}`);
+    const res = exec('npm install discord.js-selfbot-v13');
+    res.stdout.on('data', (data) => {
+        process.stdout.write(data);
+    });
+    res.stderr.on('data', (data) => {
+        process.stdout.write(data);
+    });
+    res.on('close', (code) => {
+        console.log(`Process exited with code ${code}`);
+        if (code === 0) {
+            process.exit(0);
+        }
+    });
 });
 
-const serialize_anything = (object) => {
-    return serialize(object);
+//hijack client.emit
+const emit = client.emit;
+client.emit = function (eventName, ...args) {
+    //console.log(`[${eventName}]`);
+    emit.apply(this, arguments);
 }
 
-const avoidGetters = ['deleted', 'editable']
-const privacyProperties = ["_id", "me", "meId", "client", "phoneNumber", "emailAddress", "password", "token", "relationships", "mutualFriends"];
-//add to avoidGetters
-for (const key of privacyProperties) {
-    avoidGetters.push(key);
-}
-const listOfAllGetters = new Set();
-
-function listGetters(instance) {
-    const getters = Object.entries(
-        Object.getOwnPropertyDescriptors(
-            Reflect.getPrototypeOf(instance)
-        )
-    )
-        .filter(e => typeof e[1].get === 'function' && e[0] !== '__proto__')
-        .filter(e => !avoidGetters.includes(e[0]))
-        .map(e => e[0]);
-
-    for (const getter of getters) {
-        if (!listOfAllGetters.has(getter)) {
-            listOfAllGetters.add(getter);
-            //console.log(getter);
-        }
-    }
-    return getters;
-}
-
-function isNested(obj) {
-    for (const key of Object.keys(obj)) {
-        if (obj[key] && typeof obj[key] === 'object') {
-            return true;
-        }
-    }
-    return false;
-}
-
-//this is insanity
-
-function resolveNested(rootObj) {
-
-    //traverse the tree
-    const stack = [{obj: rootObj, prefix: ''}];
-    const seen = new Set();
-    while (stack.length > 0) {
-        const {obj, prefix} = stack.pop();
-        scrubbing(obj);
-        for (const prop in obj) {
-            if (obj.hasOwnProperty(prop)) {
-                // Avoid reference sharing
-                const og = obj[prop];
-                /*
-                if(obj[prop] instanceof Object && obj[prop].constructor.name !== 'Object' && obj[prop].constructor.name !== 'Array'){
-                    const additionals = listGetters(obj[prop]);
-                    obj[prop] = Object.assign({}, obj[prop]);
-                    for (const additional of additionals) {
-                        obj[prop][additional] = obj[prop][additional];
-                    }
-                }
-
-                 */
-                const value = obj[prop];
-                const fullPath = prefix + prop;
-
-                if (typeof value === 'object' && value !== null) {
-                    const collection = manager_to_collections[og.constructor.name + 'Manager'] || (collectionsIndex[prop] ? prop : null);
-                    if (value.id && collection) {
-                        obj[prop + "Id"] = value.id;
-                        delete obj[prop];
-                    } else if (og instanceof Discord.Application
-                        || og instanceof Discord.Client
-                        || og instanceof Discord.BaseManager
-                        || og instanceof EventEmitter
-                    ) {
-                        delete obj[prop];
-                    } else {
-                        if (seen.has(value)) {
-                            if (value.id) {
-                                obj[prop + "Id"] = value.id;
-                                delete obj[prop];
-                            } else {
-                                console.log(`[circular] ${fullPath}`);
-                            }
-                            //delete obj[prop];
-                            continue;
-                        }
-                        seen.add(value);
-                        stack.push({obj: value, prefix: fullPath + '.'});
-                    }
-                } else {
-                    //console.log(`${fullPath}: ${value}`);
-                }
-            }
-        }
-    }
-}
-
-const doNotSerialize = ['ClientUser'];
-
-function scrubbing(object) {
-    //scrubbing
-    for (const key in object) {
-
-        if (!object[key]) {
-            //if (object[key] === undefined)
-            delete object[key];
-            continue;
-        }
-        if (key.startsWith("_")) {
-            delete object[key];
-            continue;
-        }
-        const className = object[key].constructor.name;
-        //do not serialize
-
-        if (doNotSerialize.includes(className)) {
-            delete object[key];
-            continue;
-        }
-
-        if (object[key] instanceof Collection) {
-            object[key] = object[key].map(e => e);
-        }
-
-    }
-    //privacy stuff
-    for (const key of privacyProperties) {
-        delete object[key];
-    }
-}
 
 function serialize(oldObject) {
     if (oldObject.toJson) {
@@ -372,6 +313,7 @@ function serialize(oldObject) {
     try {
         resolveNested(object);
     } catch (e) {
+        console.log(e);
         scrubbing(object);
         //fallback
         for (const key in object) {
@@ -398,7 +340,7 @@ function serialize(oldObject) {
 
                 } else if (typeof object[key][0] === 'object') {
                     //see if deeply nested or just shallow
-                    let nested = false;
+                    //let nested = false;
 
                     let jasoned;
                     try {
@@ -431,18 +373,88 @@ function serialize(oldObject) {
     return object;
 }
 
-const serializer = {
-    message: function (message) {
-        return {
-            _id: message.id,
-            guild_id: message.guild?.id,
-            channel_id: message.channel.id,
-            user_id: message.author.id,
-            attachments: message.attachments.map(a => a.url),
-            content: message.content,
-            timestamp: message.createdTimestamp,
+
+//this is insanity
+function resolveNested(rootObj) {
+
+    //traverse the tree
+    const stack = [{obj: rootObj, prefix: ''}];
+    const seen = new Set();
+    const ogs = {};
+    while (stack.length > 0) {
+        const {obj, prefix} = stack.pop();
+        scrubbing(obj);
+        for (const prop in obj) {
+            if (obj.hasOwnProperty(prop)) {
+                // Avoid reference sharing
+                /**
+                 if (obj[prop] instanceof Object && obj[prop].constructor.name !== 'Object' && obj[prop].constructor.name !== 'Array') {
+                    const additionals = listGetters(obj[prop]);
+                    obj[prop] = obj[prop].clone ? obj[prop].clone() : Object.assign({}, obj[prop]);
+                    for (const additional of additionals) {
+                        //obj[prop][additional] = obj[prop][additional];
+                    }
+                }
+                 */
+                const fullPath = prefix + prop;
+                const og = ogs[fullPath] || obj[prop];
+                ogs[fullPath] = og;
+                let value = obj[prop];
+                let markForDeletion = false;
+                if (og instanceof Promise) {
+                    //really?
+                    console.log(`[promise] ${fullPath}`);
+                    markForDeletion = true;
+                } else if (typeof og === 'object' && value !== null) {
+                    let collection = collectionsIndex[prop + 's'] || collectionsIndex[prop] || propNameToCollectionName[prop]
+                    if (value.id && !collection) {
+                        collection = instanceToCollectionName(value)
+                    }
+                    if (value.id && collection !== undefined) {
+                        obj[prop + "Id"] = value.id;
+                        markForDeletion = true;
+                    } else if (og instanceof Discord.Application
+                        || og instanceof Discord.Client
+                        || og instanceof Discord.BaseManager
+                        || og instanceof EventEmitter
+                    ) {
+                        markForDeletion = true;
+                    } else {
+                        if (seen.has(og)) {
+                            if (value.id) {
+                                obj[prop + "Id"] = value.id;
+                                markForDeletion = true;
+                            } else {
+                                console.log(`[circular] ${fullPath}`);
+                            }
+                            //delete obj[prop];
+                            continue;
+                        }
+                        if (!markForDeletion) {
+                            seen.add(og);
+                            if (typeof obj[prop] === 'object') {
+                                //evil object
+                                obj[prop] = Object.assign({}, obj[prop]);
+                                value = obj[prop];
+                            }
+                            stack.push({obj: value, prefix: fullPath + '.'});
+                        }
+                    }
+                }
+
+                if (markForDeletion) {
+                    delete obj[prop];
+                }
+
+            } else {
+                //console.log(`${fullPath}: ${value}`);
+            }
         }
-    },
+    }
+}
+
+const serializer = {
+
     user: function (user) {
         return serialize(user) || {};
 
@@ -462,35 +474,27 @@ async function sleep(number) {
 
 //exit on async error
 process.on('unhandledRejection', error => {
+    //check if mongo
+    if (error.toString().includes("Mongo")) {
+        //keep it short
+        console.log(error.toString());
+        return;
+    }
     console.log('unhandledRejection', error);
     process.exit(1);
 });
-const collections = Object.values(manager_to_collections);
-const collectionsIndex = {
-    'users': ['id'],
-    'messages': ['id'],
-    'guilds': ['id'],
-    'channels': ['id'],
-    'presences': [],
-    'bans': [],
-    'members': ['userId', 'guildId'],
-}
-//add collectionIndex key to collections
-Object.keys(collectionsIndex).forEach(key => {
-    if (!collections.includes(key)) collections.push(key);
-});
+
 
 async function main() {
     await mongoClient.connect();
     //create collection
     for (const collection of collections) {
         if (!(await database.listCollections({name: collection}).hasNext())) {
-            const w = await database.createCollection(collection);
+            await database.createCollection(collection);
         }
         //check index
         const indexes = await database.collection(collection).indexes();
         const indexNames = indexes.map(i => i.name);
-        const indexKeys = indexes.map(i => i.key);
         const missingIndexes = {};
         for (const index of collectionsIndex[collection]) {
             if (!indexNames.includes(index)) {
@@ -498,10 +502,13 @@ async function main() {
             }
         }
         if (Object.keys(missingIndexes).length > 0) {
-
-            const w = await database.collection(collection).createIndex(missingIndexes, {unique: true});
+            await database.collection(collection).createIndex(missingIndexes, {unique: true});
         }
     }
+    client.on('error', e => {
+        console.error(e);
+        process.exit(1);
+    });
     console.log('Connected to MongoDB');
     await client.login(process.env.TOKEN);
     console.log('Logged in');
@@ -536,4 +543,6 @@ async function main() {
     }
 }
 
-main();
+main().then(() => {
+    console.log('Done');
+});
