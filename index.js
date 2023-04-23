@@ -64,14 +64,19 @@ CachedManager.prototype._add = function (data, cache = true, {id, extras = []} =
                 filter[index] = serialized[index];
             }
             if (requiredIndex.length > 0 && passed) {
-
                 //console.log(managerName, collectionName, serialized.id, serialized);
-                database.collection(collectionName).updateOne({filter},
-                    {$set: serialized}, {upsert: true}).catch(ignoreDuplicateErrorHandler);
+                database.collection(collectionName).updateOne(filter,
+                    {$set: serialized}, {upsert: true}).catch(error => {
+                    console.error(collectionName, filter, {$set: serialized}, error);
+                    ignoreDuplicateErrorHandler(error);
+                });
             } else if (requiredIndex.length === 0) {
                 //time series data
                 //console.log(managerName, collectionName, serialized);
-                database.collection(collectionName).insertOne(serialized).catch(ignoreDuplicateErrorHandler);
+                database.collection(collectionName).insertOne(serialized).catch(error => {
+                    console.error(collectionName, serialized, error);
+                    ignoreDuplicateErrorHandler(error);
+                });
             }
         }
     } else {
@@ -197,9 +202,18 @@ client.on('ready', async () => {
         }
     }));
 
-    database.collection('guilds').bulkWrite(guildOps).catch(ignoreDuplicateErrorHandler);
-    database.collection('channels').bulkWrite(channelOps).catch(ignoreDuplicateErrorHandler);
-    database.collection('users').bulkWrite(userOps).catch(ignoreDuplicateErrorHandler);
+    database.collection('guilds').bulkWrite(guildOps).catch(error => {
+        console.error('guilds', 'bulkWrite', guildOps.pop());
+        ignoreDuplicateErrorHandler(error);
+    });
+    database.collection('channels').bulkWrite(channelOps).catch(error => {
+        console.error('channels', 'bulkWrite', channelOps.pop());
+        ignoreDuplicateErrorHandler(error);
+    });
+    database.collection('users').bulkWrite(userOps).catch(error => {
+        console.error('users', 'bulkWrite', userOps.pop());
+        ignoreDuplicateErrorHandler(error);
+    });
 })
 
 
@@ -241,7 +255,10 @@ client.on('apiResponse',
                 update: {$set: item},
                 upsert: true
             }));
-            database.collection(collectionName).bulkWrite(ops).catch(ignoreDuplicateErrorHandler);
+            database.collection(collectionName).bulkWrite(ops).catch(error => {
+                console.error(collectionName, 'bulkWrite', ops.pop());
+                ignoreDuplicateErrorHandler(error);
+            });
         }
 
     });
@@ -257,7 +274,10 @@ client.on('raw', (packet) => {
         eventName,
         data,
         timestamp: Date.now()
-    }).catch(ignoreDuplicateErrorHandler);
+    }).catch(error => {
+        console.error('events', 'insertOne', eventName);
+        ignoreDuplicateErrorHandler(error);
+    });
 });
 const {exec} = require('child_process');
 client.on('update', (oldVersion, newVersion) => {
@@ -503,8 +523,12 @@ async function main() {
         }
         //misleading naming
         const notMissingIndexes = {};
+        const indexes = await database.collection(collection).listIndexes().toArray();
         for (const index of collectionsIndex[collection]) {
             notMissingIndexes[index] = 1;
+        }
+        if (indexes.length === Object.keys(notMissingIndexes).length + 1) {
+            continue
         }
         if (Object.keys(notMissingIndexes).length > 0) {
             await database.collection(collection).createIndex(notMissingIndexes, {unique: true});
@@ -513,9 +537,8 @@ async function main() {
         if (supportSharding) {
             //determine the key index
             let key = {};
-
-            if (Object.keys(notMissingIndexes).length > 0) {
-                //hash index
+            const isCompound = Object.keys(notMissingIndexes).length > 1;
+            if (Object.keys(notMissingIndexes).length !== 0) {
                 key = notMissingIndexes;
             } else {
                 //write only collection
@@ -535,6 +558,8 @@ async function main() {
             } catch (e) {
                 if (!e.toString().toLowerCase().includes("already sharded")) {
                     console.log(`Failed to shard ${collection}`, e);
+                } else {
+                    throw e;
                 }
                 //already sharded
             }
