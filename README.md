@@ -1,4 +1,5 @@
 # discord-shadow-copy-mongodb
+- now with sharding
 
 brought to you by triple letter agency
 
