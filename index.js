@@ -518,8 +518,10 @@ async function main() {
 
     //create collection
     for (const collection of collections) {
+        let iJustCreatedThisCollection = false;
         if (!(await database.listCollections({name: collection}).hasNext())) {
             await database.createCollection(collection);
+            iJustCreatedThisCollection = true;
         }
         //misleading naming
         const notMissingIndexes = {};
@@ -527,7 +529,7 @@ async function main() {
         for (const index of collectionsIndex[collection]) {
             notMissingIndexes[index] = 1;
         }
-        if (indexes.length === Object.keys(notMissingIndexes).length + 1) {
+        if (!iJustCreatedThisCollection && indexes.length === (Math.min(Object.keys(notMissingIndexes).length, 1) + 1)) {
             continue
         }
         if (Object.keys(notMissingIndexes).length > 0) {
