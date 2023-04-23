@@ -488,22 +488,56 @@ process.on('unhandledRejection', error => {
 
 async function main() {
     await mongoClient.connect();
+    const supportSharding = (await mongoClient.db().admin().command({listShards: 1}))?.shards?.length > 0;
+    if (supportSharding) {
+        // enable sharding for the database if it's not already enabled
+        //await mongoClient.db().admin().command({enableSharding: process.env.MONGO_DB});
+        console.log('Sharding supported');
+    }
+
+
     //create collection
     for (const collection of collections) {
         if (!(await database.listCollections({name: collection}).hasNext())) {
             await database.createCollection(collection);
         }
-        //check index
-        const indexes = await database.collection(collection).indexes();
-        const indexNames = indexes.map(i => i.name);
-        const missingIndexes = {};
+        //misleading naming
+        const notMissingIndexes = {};
         for (const index of collectionsIndex[collection]) {
-            if (!indexNames.includes(index)) {
-                missingIndexes[index] = 1;
-            }
+            notMissingIndexes[index] = 1;
         }
-        if (Object.keys(missingIndexes).length > 0) {
-            await database.collection(collection).createIndex(missingIndexes, {unique: true});
+        if (Object.keys(notMissingIndexes).length > 0) {
+            await database.collection(collection).createIndex(notMissingIndexes, {unique: true});
+        }
+        //check if database support sharding
+        if (supportSharding) {
+            //determine the key index
+            let key = {};
+
+            if (Object.keys(notMissingIndexes).length > 0) {
+                //hash index
+                key = notMissingIndexes;
+            } else {
+                //write only collection
+                key = {_id: 1};
+            }
+            try {
+                let com = {
+                    shardCollection: `${process.env.MONGO_DB}.${collection}`,
+                    key: key,
+                    unique: true,
+                };
+
+                const isCollectionSharded = (await database.admin().command(com));
+                if (isCollectionSharded.ok === 1) {
+                    console.log(`Sharded ${collection}`);
+                }
+            } catch (e) {
+                if (!e.toString().toLowerCase().includes("already sharded")) {
+                    console.log(`Failed to shard ${collection}`, e);
+                }
+                //already sharded
+            }
         }
     }
     client.on('error', e => {
