@@ -508,13 +508,12 @@ process.on('unhandledRejection', error => {
 
 async function main() {
     await mongoClient.connect();
-    const supportSharding = (await mongoClient.db().admin().command({listShards: 1}))?.shards?.length > 0;
-    if (supportSharding) {
-        // enable sharding for the database if it's not already enabled
-        //await mongoClient.db().admin().command({enableSharding: process.env.MONGO_DB});
-        console.log('Sharding supported');
+    let supportSharding = false;
+    try {
+        supportSharding = (await mongoClient.db().admin().command({listShards: 1}))?.shards?.length > 0;
+    } catch (e) {
+        console.log('Sharding not supported');
     }
-
 
     //create collection
     for (const collection of collections) {
